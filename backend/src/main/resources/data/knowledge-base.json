@@ -1,0 +1,47 @@
+[
+    {
+        "id": "api-rest-basics",
+        "title": "Introducción a APIs REST",
+        "category": "INTEGRATION",
+        "difficulty": "BEGINNER",
+        "content": "Una API REST (Representational State Transfer) es un estilo arquitectónico para diseñar servicios web. Utiliza métodos HTTP estándar (GET, POST, PUT, DELETE) y retorna datos en formato JSON o XML. Los principios clave incluyen: arquitectura cliente-servidor, sin estado (stateless), cacheable, interfaz uniforme y sistema en capas.",
+        "tags": [
+            "rest",
+            "api",
+            "http",
+            "json"
+        ],
+        "views": 1250,
+        "rating": 4.8
+    },
+    {
+        "id": "auth-bearer-token",
+        "title": "Autenticación con Bearer Token",
+        "category": "INTEGRATION",
+        "difficulty": "BEGINNER",
+        "content": "El esquema Bearer Token es un método de autenticación donde el cliente incluye un token en el header Authorization. Formato correcto: 'Authorization: Bearer YOUR_TOKEN_HERE'. El token se obtiene típicamente mediante un endpoint de login y debe renovarse periódicamente.",
+        "tags": [
+            "authentication",
+            "bearer",
+            "security",
+            "token"
+        ],
+        "views": 980,
+        "rating": 4.7
+    },
+    {
+        "id": "http-401-fix",
+        "title": "Solución: Error 401 Unauthorized",
+        "category": "TROUBLESHOOTING",
+        "difficulty": "INTERMEDIATE",
+        "content": "Error 401 indica fallo de autenticación. Pasos para resolver: 1) Verificar que el token/credenciales sean correctos. 2) Confirmar formato del header (Bearer, Basic, etc). 3) Validar que el token no haya expirado. 4) Verificar permisos del usuario.",
+        "tags": [
+            "error",
+            "401",
+            "authentication",
+            "troubleshooting"
+        ],
+        "views": 2100,
+        "rating": 4.9
+    }
+]

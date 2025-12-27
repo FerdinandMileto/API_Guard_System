@@ -1,0 +1,2290 @@
+ DICCIONARIO TÉCNICO COMPLETO - APIGuard
+🎯 ÍNDICE
+
+Arquitectura y Patrones
+Componentes Spring Boot
+Conceptos de Soporte Técnico
+Conceptos de Data Science
+APIs y Protocolos
+Base de Datos y Persistencia
+Flujos Completos
+
+
+<a name="arquitectura"></a>🏗️ ARQUITECTURA Y PATRONES DE DISEÑO
+Clean Architecture (Arquitectura Limpia)
+Qué es: Separación del código en capas con responsabilidades específicas.
+En APIGuard:
+┌─────────────────────────────────────┐
+│    CAPA DE PRESENTACIÓN             │
+│    Controllers (REST endpoints)      │ ← Recibe HTTP requests
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│    CAPA DE LÓGICA DE NEGOCIO        │
+│    Services (Business logic)         │ ← Procesa datos
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│    CAPA DE DATOS                    │
+│    DTOs, Repositories                │ ← Maneja persistencia
+└─────────────────────────────────────┘
+Por qué importa:
+
+Código más mantenible
+Fácil de testear cada capa
+Cambios en una capa no afectan otras
+
+Ejemplo real en el proyecto:
+java// CAPA 1: Controller (recibe request HTTP)
+@RestController
+public class HealthController {
+    @GetMapping("/api/health/check")
+    public ResponseEntity<HealthCheckResponse> check(@RequestParam String url) {
+        // Solo recibe y delega
+        return ResponseEntity.ok(healthService.performHealthCheck(url));
+    }
+}
+
+// CAPA 2: Service (lógica de negocio)
+@Service
+public class HealthMonitorService {
+    public HealthCheckResponse performHealthCheck(String url) {
+        // Aquí está la lógica real
+        // - Hace HTTP request
+        // - Mide latencia
+        // - Analiza respuesta
+        return response;
+    }
+}
+
+// CAPA 3: DTO (estructura de datos)
+@Data
+public class HealthCheckResponse {
+    private String url;
+    private Integer statusCode;
+    // Sin lógica, solo datos
+}
+
+Patrón Builder
+Qué es: Forma elegante de construir objetos complejos paso a paso.
+Sin Builder (confuso):
+javaHealthCheckResponse response = new HealthCheckResponse();
+response.setUrl("https://api.com");
+response.setStatus("UP");
+response.setStatusCode(200);
+response.setResponseTimeMs(150L);
+// ... 10 líneas más
+Con Builder (claro):
+javaHealthCheckResponse response = HealthCheckResponse.builder()
+    .url("https://api.com")
+    .status("UP")
+    .statusCode(200)
+    .responseTimeMs(150L)
+    .build();
+Cómo funciona en Java:
+java@Data
+@Builder  // ← Lombok genera automáticamente el builder
+public class HealthCheckResponse {
+    private String url;
+    private String status;
+    // ...
+}
+
+// Lombok genera esto internamente:
+public static class HealthCheckResponseBuilder {
+    private String url;
+    private String status;
+    
+    public HealthCheckResponseBuilder url(String url) {
+        this.url = url;
+        return this;  // ← Permite encadenar .url().status()
+    }
+    
+    public HealthCheckResponse build() {
+        return new HealthCheckResponse(url, status, ...);
+    }
+}
+Por qué lo usamos:
+
+DTOs tienen muchos campos (10-15)
+Más legible que 15 setters
+Valida que campos requeridos estén presentes
+
+
+Patrón Service Layer (Capa de Servicios)
+Qué es: Toda la lógica de negocio vive en clases @Service.
+Responsabilidades de un Service:
+
+Lógica de negocio - Cálculos, validaciones, algoritmos
+Orquestación - Coordinar múltiples operaciones
+Transacciones - Manejar operaciones de BD
+Caché - Optimizar performance
+
+Ejemplo en HealthMonitorService:
+java@Service  // ← Spring lo marca como componente reutilizable
+@Slf4j    // ← Logging automático
+@RequiredArgsConstructor  // ← Inyección de dependencias
+public class HealthMonitorService {
+
+    // Spring inyecta esto automáticamente
+    private final ObjectMapper objectMapper;
+    
+    // Almacenamiento en memoria
+    private final Map<String, List<HealthCheckResponse>> healthHistory = new ConcurrentHashMap<>();
+    
+    @Cacheable("endpointStats")  // ← Resultado se cachea
+    public EndpointStatistics getEndpointStatistics(String url) {
+        // Lógica compleja aquí
+        List<HealthCheckResponse> history = healthHistory.get(url);
+        
+        // Calcular estadísticas
+        long total = history.size();
+        long successful = history.stream()
+            .filter(h -> "UP".equals(h.getStatus()))
+            .count();
+        
+        double uptime = (successful * 100.0) / total;
+        
+        return EndpointStatistics.builder()
+            .uptimePercentage(uptime)
+            .totalChecks(total)
+            .build();
+    }
+    
+    @Scheduled(fixedRate = 60000)  // ← Se ejecuta cada 60 segundos
+    @Async  // ← Se ejecuta en thread separado
+    public void scheduledMonitoring() {
+        // Monitoreo automático
+    }
+}
+Por qué separar en Services:
+
+Controller solo maneja HTTP (ligero)
+Service tiene la lógica (pesado, complejo)
+Puedes testear Service sin levantar servidor
+Puedes reutilizar Service en múltiples Controllers
+
+
+Inyección de Dependencias (Dependency Injection)
+Qué es: Spring "inyecta" objetos que necesitas automáticamente.
+Sin DI (manual, malo):
+javapublic class HealthController {
+    private HealthMonitorService service = new HealthMonitorService();
+    // ↑ Problema: tú creas el objeto manualmente
+}
+Con DI (Spring lo hace):
+java@RestController
+@RequiredArgsConstructor  // ← Lombok genera constructor
+public class HealthController {
+    
+    private final HealthMonitorService service;
+    // ↑ Spring busca un @Service y lo inyecta automáticamente
+    
+    // Lombok genera esto:
+    // public HealthController(HealthMonitorService service) {
+    //     this.service = service;
+    // }
+}
+```
+
+**Cómo funciona Spring:**
+```
+1. Spring escanea tu código
+2. Encuentra clases con @Service, @Controller, @Component
+3. Crea UNA SOLA instancia de cada una (Singleton)
+4. Cuando encuentra un constructor que necesita algo...
+5. Busca la instancia correspondiente
+6. La inyecta automáticamente
+Ventajas:
+
+No te preocupas por crear objetos
+Spring maneja el ciclo de vida
+Fácil cambiar implementaciones para testing
+Una sola instancia compartida (eficiente)
+
+
+<a name="spring-boot"></a>🍃 COMPONENTES SPRING BOOT
+@SpringBootApplication
+Qué hace: Anotación "maestra" que activa todo Spring Boot.
+java@SpringBootApplication  // ← Combina 3 anotaciones
+@EnableAsync           // ← Permite métodos @Async
+@EnableScheduling      // ← Permite métodos @Scheduled
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+        // ↑ Arranca el servidor web, Spring Context, todo
+    }
+}
+```
+
+**@SpringBootApplication = 3 en 1:**
+1. **@Configuration** - "Esta clase configura Spring"
+2. **@EnableAutoConfiguration** - "Configura automáticamente según dependencias"
+3. **@ComponentScan** - "Busca @Service, @Controller en este paquete"
+
+**Auto-configuration mágica:**
+```
+¿Tienes spring-boot-starter-web en pom.xml?
+→ Spring configura Tomcat automáticamente
+→ Spring configura Jackson (JSON) automáticamente
+→ Spring configura MVC automáticamente
+
+¿Tienes spring-boot-starter-data-jpa?
+→ Spring configura Hibernate automáticamente
+→ Spring configura DataSource automáticamente
+
+@RestController
+Qué es: Marca una clase como "controlador REST" que maneja HTTP.
+java@RestController  // ← Combina @Controller + @ResponseBody
+@RequestMapping("/api/health")  // ← Prefijo de URLs
+@CrossOrigin(origins = "*")  // ← Permite CORS (llamadas desde navegador)
+public class HealthController {
+    
+    @GetMapping("/check")  // ← GET /api/health/check
+    public ResponseEntity<HealthCheckResponse> check(@RequestParam String url) {
+        // @RequestParam → toma "?url=" de la URL
+        // ResponseEntity → envuelve la respuesta con status code
+        
+        HealthCheckResponse response = service.performHealthCheck(url);
+        return ResponseEntity.ok(response);  // ← HTTP 200 + JSON
+    }
+    
+    @PostMapping("/check/advanced")  // ← POST /api/health/check/advanced
+    public ResponseEntity<HealthCheckResponse> advanced(
+            @RequestBody HealthCheckRequest request) {
+        // @RequestBody → convierte JSON del body a objeto Java
+        
+        return ResponseEntity.ok(service.performAdvancedCheck(request));
+    }
+}
+```
+
+**Flujo de una petición:**
+```
+1. HTTP Request llega a Tomcat
+   GET /api/health/check?url=https://api.com
+
+2. Spring busca un @GetMapping que coincida
+   → Encuentra HealthController.check()
+
+3. Spring extrae parámetros
+   url = "https://api.com"
+
+4. Spring convierte tipos automáticamente
+   String url (listo)
+
+5. Spring ejecuta el método
+   response = service.performHealthCheck("https://api.com")
+
+6. Spring convierte response a JSON
+   {"url": "https://api.com", "status": "UP", ...}
+
+7. Spring envía HTTP 200 + JSON
+
+@Service
+Qué es: Marca una clase como "servicio de negocio".
+java@Service  // ← Spring crea UNA instancia y la gestiona
+@Slf4j    // ← Lombok agrega: private static final Logger log = ...
+public class AnalyticsService {
+    
+    // Spring inyecta esto automáticamente
+    private final HealthMonitorService healthService;
+    
+    public LatencyStatistics calculateLatencyStats(String endpoint) {
+        log.info("Calculando stats de: {}", endpoint);  // ← Logging
+        
+        // Lógica compleja aquí
+        List<Long> latencies = getLatencies(endpoint);
+        
+        double mean = calculateMean(latencies);
+        double p95 = calculatePercentile(latencies, 95);
+        
+        return LatencyStatistics.builder()
+            .mean(mean)
+            .p95(p95)
+            .build();
+    }
+    
+    private double calculateMean(List<Long> values) {
+        return values.stream()
+            .mapToLong(Long::longValue)
+            .average()
+            .orElse(0.0);
+    }
+}
+¿Por qué @Service y no solo una clase normal?
+
+Spring lo detecta y lo gestiona
+Puedes inyectarlo en otros componentes
+Spring maneja su ciclo de vida
+Puedes agregar transacciones, caché, seguridad
+
+
+@Scheduled (Tareas Programadas)
+Qué hace: Ejecuta un método automáticamente según un horario.
+java@Service
+public class HealthMonitorService {
+    
+    @Scheduled(fixedRate = 60000)  // ← Cada 60,000 ms = 1 minuto
+    @Async  // ← Se ejecuta en thread separado (no bloquea)
+    public void scheduledMonitoring() {
+        if (monitoredEndpoints.isEmpty()) {
+            return;  // Si no hay endpoints, no hace nada
+        }
+        
+        log.info("Ejecutando monitoreo de {} endpoints", 
+            monitoredEndpoints.size());
+        
+        monitoredEndpoints.values().forEach(request -> {
+            try {
+                performAdvancedCheck(request);  // Health check
+            } catch (Exception e) {
+                log.error("Error monitoreando {}", request.getUrl());
+            }
+        });
+    }
+}
+Tipos de @Scheduled:
+java// Tasa fija: cada X milisegundos
+@Scheduled(fixedRate = 60000)
+
+// Delay fijo: X ms DESPUÉS de que termine anterior
+@Scheduled(fixedDelay = 5000)
+
+// Cron expression: horarios específicos
+@Scheduled(cron = "0 0 2 * * *")  // Todos los días a las 2 AM
+
+// Inicial delay: espera X ms antes de empezar
+@Scheduled(initialDelay = 10000, fixedRate = 60000)
+```
+
+**Flujo temporal:**
+```
+t=0s    → App inicia
+t=60s   → scheduledMonitoring() ejecuta (1ra vez)
+          Hace health check de todos los endpoints
+          Tarda ~5 segundos
+t=120s  → scheduledMonitoring() ejecuta (2da vez)
+          (No espera a que termine la 1ra, por eso @Async)
+t=180s  → scheduledMonitoring() ejecuta (3ra vez)
+...     → Continúa cada 60s para siempre
+
+@Cacheable (Sistema de Caché)
+Qué hace: Guarda el resultado de un método para no recalcularlo.
+java@Service
+public class KnowledgeBaseService {
+    
+    @Cacheable("articles")  // ← Nombre del caché
+    public List<KnowledgeArticle> getAllArticles() {
+        log.info("Cargando artículos desde JSON...");  // Solo 1ra vez
+        
+        // Operación costosa: leer archivo, parsear JSON
+        return articles;
+    }
+}
+```
+
+**Cómo funciona:**
+```
+1ra llamada:
+  getAllArticles()
+  → No hay en caché
+  → Ejecuta método (lee JSON, tarda 100ms)
+  → Guarda resultado en caché "articles"
+  → Retorna resultado
+
+2da llamada (10 segundos después):
+  getAllArticles()
+  → SÍ hay en caché "articles"
+  → NO ejecuta método
+  → Retorna resultado cacheado (tarda 0.1ms)
+  ↑ 1000x más rápido!
+
+N llamadas siguientes:
+  → Todas retornan del caché (súper rápido)
+Configuración del caché:
+java@Configuration
+@EnableCaching  // ← Activa sistema de caché
+public class CacheConfig {
+    
+    @Bean
+    public CacheManager cacheManager() {
+        return new ConcurrentMapCacheManager(
+            "articles",      // ← Caché para KB
+            "endpointStats", // ← Caché para estadísticas
+            "healthChecks"   // ← Caché para health checks
+        );
+    }
+}
+Cuándo se invalida el caché:
+
+Cuando reinicias la aplicación
+Después de X tiempo (configurable)
+Manualmente con @CacheEvict
+
+
+Swagger / OpenAPI (Documentación Automática)
+Qué es: Genera documentación interactiva de tu API automáticamente.
+java@Configuration
+public class SwaggerConfig {
+    
+    @Bean
+    public OpenAPI apiDocConfig() {
+        return new OpenAPI()
+            .info(new Info()
+                .title("APIGuard - Sistema de Soporte Web")
+                .description("API completa para monitoreo y diagnóstico")
+                .version("1.0.0")
+                .contact(new Contact()
+                    .name("Tu Nombre")
+                    .email("tu@email.com")
+                )
+            );
+    }
+}
+En los Controllers:
+java@RestController
+@Tag(name = "Health Monitor", description = "Monitoreo de APIs")
+public class HealthController {
+    
+    @GetMapping("/check")
+    @Operation(
+        summary = "Verificar salud de endpoint",
+        description = "Realiza un health check y mide latencia"
+    )
+    public ResponseEntity<HealthCheckResponse> check(
+            @Parameter(description = "URL completa del endpoint")
+            @RequestParam String url) {
+        // ...
+    }
+}
+```
+
+**Lo que genera Swagger:**
+```
+http://localhost:8080/swagger-ui.html
+
+┌────────────────────────────────────┐
+│ APIGuard API Documentation         │
+├────────────────────────────────────┤
+│ Health Monitor                     │
+│   GET /api/health/check            │
+│   POST /api/health/check/advanced  │
+│   ...                              │
+│                                    │
+│ Diagnostic Tools                   │
+│   POST /api/diagnose/full          │
+│   ...                              │
+│                                    │
+│ [Try it out] buttons               │
+│ Request/Response examples          │
+│ Schema definitions                 │
+└────────────────────────────────────┘
+Por qué es valioso:
+
+Documentación siempre actualizada
+Puedes probar la API desde el navegador
+Muestra ejemplos de request/response
+Genera código cliente automáticamente
+
+
+<a name="soporte"></a>🔧 CONCEPTOS DE SOPORTE TÉCNICO
+Health Check (Verificación de Salud)
+Qué es: Verificar que un endpoint/servicio esté funcionando correctamente.
+Niveles de Health Check:
+1. Básico (Ping)
+java// Solo verifica si responde
+public HealthCheckResponse simpleCheck(String url) {
+    try {
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+        conn.setConnectTimeout(5000);
+        
+        int statusCode = conn.getResponseCode();
+        
+        return HealthCheckResponse.builder()
+            .status(statusCode == 200 ? "UP" : "DOWN")
+            .statusCode(statusCode)
+            .build();
+    } catch (Exception e) {
+        return HealthCheckResponse.builder()
+            .status("DOWN")
+            .message(e.getMessage())
+            .build();
+    }
+}
+2. Intermedio (Con Métricas)
+javapublic HealthCheckResponse intermediateCheck(String url) {
+    long startTime = System.currentTimeMillis();
+    
+    try {
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+        
+        int statusCode = conn.getResponseCode();
+        long responseTime = System.currentTimeMillis() - startTime;
+        
+        // Analizar respuesta
+        String status = determineStatus(statusCode, responseTime);
+        List<String> issues = detectIssues(statusCode, responseTime);
+        
+        return HealthCheckResponse.builder()
+            .status(status)
+            .statusCode(statusCode)
+            .responseTimeMs(responseTime)
+            .issues(issues)
+            .build();
+    } catch (Exception e) {
+        return buildErrorResponse(e);
+    }
+}
+
+private String determineStatus(int code, long latency) {
+    if (code >= 200 && code < 300) {
+        return latency > 3000 ? "DEGRADED" : "UP";
+    }
+    return "DOWN";
+}
+3. Avanzado (Diagnóstico Completo)
+javapublic DiagnosticReport fullDiagnosis(DiagnosticRequest request) {
+    DiagnosticReport report = DiagnosticReport.builder()
+        .diagnosticId(UUID.randomUUID().toString())
+        .timestamp(LocalDateTime.now())
+        .build();
+    
+    // 1. Validar autenticación
+    AuthenticationAnalysis authAnalysis = analyzeAuth(request);
+    report.setAuthAnalysis(authAnalysis);
+    
+    // 2. Validar payload
+    if (request.getRequestBody() != null) {
+        PayloadAnalysis payloadAnalysis = analyzePayload(request.getRequestBody());
+        report.setPayloadAnalysis(payloadAnalysis);
+    }
+    
+    // 3. Ejecutar request y analizar respuesta
+    ResponseAnalysis responseAnalysis = executeAndAnalyze(request);
+    report.setResponseAnalysis(responseAnalysis);
+    
+    // 4. Medir performance
+    PerformanceAnalysis perfAnalysis = analyzePerformance(request);
+    report.setPerformanceAnalysis(perfAnalysis);
+    
+    // 5. Generar recomendaciones
+    generateRecommendations(report);
+    
+    return report;
+}
+```
+
+**Qué se mide en un Health Check:**
+- ✅ **Disponibilidad** - ¿Responde?
+- ⏱️ **Latencia** - ¿Qué tan rápido?
+- 📊 **Status Code** - ¿200, 500, 404?
+- 🔒 **SSL/TLS** - ¿Certificado válido?
+- 📦 **Content Type** - ¿JSON, XML, HTML?
+- 💾 **Content Length** - ¿Tamaño respuesta?
+- 🏷️ **Headers** - Server, Cache-Control, etc.
+
+---
+
+## **Monitoreo Continuo (Continuous Monitoring)**
+**Qué es:** Verificar health de endpoints automáticamente y repetidamente.
+
+**Arquitectura del Monitoreo:**
+```
+┌──────────────────────────────────────┐
+│ 1. Usuario registra endpoint         │
+│    POST /api/health/monitor/register │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│ 2. Se guarda en monitoredEndpoints   │
+│    Map<String, HealthCheckRequest>   │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│ 3. Scheduler ejecuta cada 60s        │
+│    @Scheduled(fixedRate = 60000)     │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│ 4. Para cada endpoint monitoreado    │
+│    - Ejecuta health check            │
+│    - Guarda en historial             │
+│    - Detecta degradación             │
+└──────────────┬───────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────┐
+│ 5. Usuario consulta estadísticas     │
+│    GET /api/health/stats             │
+│    → Uptime: 99.8%                   │
+│    → Avg latency: 245ms              │
+│    → Incidents: 2 en últimas 24h     │
+└──────────────────────────────────────┘
+Implementación:
+java@Service
+public class HealthMonitorService {
+    
+    // Almacenamiento en memoria
+    private final Map<String, HealthCheckRequest> monitoredEndpoints = new ConcurrentHashMap<>();
+    private final Map<String, List<HealthCheckResponse>> healthHistory = new ConcurrentHashMap<>();
+    
+    public void registerForMonitoring(HealthCheckRequest request) {
+        monitoredEndpoints.put(request.getUrl(), request);
+        log.info("Endpoint registrado: {}", request.getUrl());
+    }
+    
+    @Scheduled(fixedRate = 60000)  // Cada 60 segundos
+    @Async  // Thread separado
+    public void scheduledMonitoring() {
+        monitoredEndpoints.values().forEach(request -> {
+            try {
+                HealthCheckResponse response = performAdvancedCheck(request);
+                saveToHistory(request.getUrl(), response);
+                
+                // Alertar si hay problema
+                if ("DOWN".equals(response.getStatus())) {
+                    alertIncident(request.getUrl(), response);
+                }
+            } catch (Exception e) {
+                log.error("Error monitoreando {}", request.getUrl(), e);
+            }
+        });
+    }
+    
+    private void saveToHistory(String url, HealthCheckResponse response) {
+        healthHistory.computeIfAbsent(url, k -> new ArrayList<>()).add(response);
+        
+        // Mantener solo últimos 100 checks
+        List<HealthCheckResponse> history = healthHistory.get(url);
+        if (history.size() > 100) {
+            history.remove(0);
+        }
+    }
+}
+
+Troubleshooting Sistemático
+Qué es: Proceso estructurado para diagnosticar y resolver problemas.
+Metodología en APIGuard:
+Paso 1: Recolectar Información
+javapublic DiagnosticReport diagnose(DiagnosticRequest request) {
+    // Capturar TODO sobre la solicitud
+    DiagnosticReport report = DiagnosticReport.builder()
+        .endpoint(request.getEndpoint())
+        .method(request.getMethod())
+        .headers(request.getHeaders())
+        .requestBody(request.getRequestBody())
+        .build();
+    
+    return report;
+}
+Paso 2: Analizar Autenticación
+javaprivate AuthenticationAnalysis analyzeAuth(DiagnosticRequest request) {
+    AuthenticationAnalysis analysis = AuthenticationAnalysis.builder().build();
+    
+    String authType = request.getAuthenticationType();
+    String authValue = request.getAuthenticationValue();
+    
+    // Validar formato según tipo
+    switch (authType) {
+        case "Bearer":
+            if (!authValue.startsWith("Bearer ")) {
+                analysis.setIsValid(false);
+                analysis.getProblems().add("Falta prefijo 'Bearer '");
+                analysis.setCorrectFormat("Authorization: Bearer YOUR_TOKEN");
+            } else {
+                analysis.setIsValid(true);
+            }
+            break;
+            
+        case "Basic":
+            if (!authValue.contains(":")) {
+                analysis.setIsValid(false);
+                analysis.getProblems().add("Formato Basic inválido");
+                analysis.setCorrectFormat("username:password (base64)");
+            }
+            break;
+    }
+    
+    return analysis;
+}
+Paso 3: Validar Payload
+javaprivate PayloadAnalysis analyzePayload(String payload) {
+    PayloadAnalysis analysis = PayloadAnalysis.builder().build();
+    
+    try {
+        // Intentar parsear JSON
+        objectMapper.readTree(payload);
+        analysis.setIsValidJson(true);
+        analysis.setSizeBytes(payload.getBytes().length);
+    } catch (Exception e) {
+        analysis.setIsValidJson(false);
+        analysis.getFormatErrors().add("JSON inválido: " + e.getMessage());
+    }
+    
+    return analysis;
+}
+Paso 4: Ejecutar y Analizar
+javaprivate ResponseAnalysis executeAndAnalyze(DiagnosticRequest request) {
+    try {
+        HttpURLConnection conn = createConnection(request);
+        int statusCode = conn.getResponseCode();
+        
+        ResponseAnalysis analysis = ResponseAnalysis.builder()
+            .statusCode(statusCode)
+            .statusCategory(categorizeStatus(statusCode))
+            .contentType(conn.getContentType())
+            .build();
+        
+        return analysis;
+    } catch (Exception e) {
+        return buildErrorAnalysis(e);
+    }
+}
+
+private String categorizeStatus(int code) {
+    if (code >= 200 && code < 300) return "SUCCESS";
+    if (code >= 400 && code < 500) return "CLIENT_ERROR";
+    if (code >= 500) return "SERVER_ERROR";
+    return "UNKNOWN";
+}
+Paso 5: Generar Recomendaciones
+javaprivate void generateRecommendations(DiagnosticReport report) {
+    List<Recommendation> recommendations = new ArrayList<>();
+    
+    // Si hay error de auth
+    if (!report.getAuthAnalysis().getIsValid()) {
+        recommendations.add(Recommendation.builder()
+            .priority("CRITICAL")
+            .title("Corregir autenticación")
+            .description("El formato del header Authorization es incorrecto")
+            .implementation("Usar: " + report.getAuthAnalysis().getCorrectFormat())
+            .build());
+    }
+    
+    // Si hay error 500
+    if (report.getResponseAnalysis().getStatusCode() >= 500) {
+        recommendations.add(Recommendation.builder()
+            .priority("HIGH")
+            .title("Contactar al equipo del servicio")
+            .description("Error del servidor - problema en el backend")
+            .implementation("Reportar con: endpoint, timestamp, request completo")
+            .build());
+    }
+    
+    report.setRecommendations(recommendations);
+}
+```
+
+**Flujo completo de troubleshooting:**
+```
+Usuario reporta: "No puedo conectarme a la API"
+         ↓
+1. Ejecutar /api/diagnose/full
+         ↓
+2. Sistema analiza:
+   ✅ Auth: Token mal formateado
+   ✅ Payload: JSON válido
+   ✅ Network: Conexión OK
+   ❌ Response: 401 Unauthorized
+         ↓
+3. Sistema identifica causa raíz:
+   "Falta prefijo 'Bearer ' en token"
+         ↓
+4. Sistema genera solución:
+   "Cambiar 'abc123' por 'Bearer abc123'"
+         ↓
+5. Sistema enlaza documentación:
+   "/api/knowledge/articles/auth-bearer-token"
+         ↓
+Usuario corrige → Problema resuelto ✅
+
+ DICCIONARIO TÉCNICO COMPLETO - APIGuard (PARTE 2)
+
+<a name="data-science"></a>📊 CONCEPTOS DE DATA SCIENCE
+Estadística Descriptiva
+Qué es: Resumir y describir características de un conjunto de datos.
+Media (Average / Mean)
+Definición: Suma de todos los valores dividido entre la cantidad.
+Fórmula matemática:
+Media = (Σ valores) / n
+
+Ejemplo:
+Latencias: [100ms, 200ms, 150ms, 300ms, 250ms]
+Media = (100 + 200 + 150 + 300 + 250) / 5
+Media = 1000 / 5 = 200ms
+Implementación en Java:
+javaprivate double calculateMean(List<Long> values) {
+    return values.stream()
+        .mapToLong(Long::longValue)  // Convertir a long primitivo
+        .average()                    // Calcular promedio
+        .orElse(0.0);                // Si lista vacía, retornar 0
+}
+
+// Uso:
+List<Long> latencies = List.of(100L, 200L, 150L, 300L, 250L);
+double mean = calculateMean(latencies);  // 200.0
+```
+
+**Qué significa en APIGuard:**
+- Media de latencia = tiempo promedio de respuesta
+- Si media = 200ms → "En promedio, las APIs responden en 200ms"
+- **Limitación:** Sensible a outliers (valores extremos)
+
+**Ejemplo con outlier:**
+```
+Latencias: [100, 200, 150, 300, 5000]  ← 5000ms es un outlier
+Media = 5750 / 5 = 1150ms  ← No representa bien el comportamiento típico
+
+Por eso también calculamos mediana...
+```
+
+---
+
+### **Mediana (Median)**
+**Definición:** Valor del medio cuando ordenas los datos.
+
+**Fórmula:**
+```
+1. Ordenar valores de menor a mayor
+2. Si n es impar → mediana = valor en posición (n+1)/2
+3. Si n es par → mediana = promedio de valores en posiciones n/2 y (n/2)+1
+Implementación:
+javaprivate double calculateMedian(List<Long> values) {
+    if (values.isEmpty()) return 0.0;
+    
+    // Copiar y ordenar
+    List<Long> sorted = new ArrayList<>(values);
+    Collections.sort(sorted);
+    
+    int n = sorted.size();
+    int middle = n / 2;
+    
+    if (n % 2 == 0) {
+        // Par: promedio de dos del medio
+        return (sorted.get(middle - 1) + sorted.get(middle)) / 2.0;
+    } else {
+        // Impar: el del medio
+        return sorted.get(middle).doubleValue();
+    }
+}
+
+// Ejemplos:
+List<Long> odd = List.of(100L, 150L, 200L, 250L, 300L);
+// Ordenado: [100, 150, 200, 250, 300]
+// Mediana = 200 (valor del medio)
+
+List<Long> even = List.of(100L, 200L, 300L, 400L);
+// Ordenado: [100, 200, 300, 400]
+// Mediana = (200 + 300) / 2 = 250
+```
+
+**Ventaja sobre media:**
+```
+Con outlier:
+Latencias: [100, 200, 150, 300, 5000]
+Ordenadas: [100, 150, 200, 300, 5000]
+           
+Media = 1150ms    ← Influenciada por outlier
+Mediana = 200ms   ← Representa mejor el comportamiento típico ✅
+```
+
+---
+
+### **Desviación Estándar (Standard Deviation)**
+**Qué es:** Mide cuánto se dispersan los datos respecto a la media.
+
+**Interpretación:**
+- Desviación pequeña → Datos muy consistentes
+- Desviación grande → Datos muy variables
+
+**Fórmula matemática:**
+```
+1. Calcular media (μ)
+2. Calcular diferencias al cuadrado: (valor - μ)²
+3. Sumar todas las diferencias al cuadrado
+4. Dividir entre n (varianza)
+5. Sacar raíz cuadrada (desviación estándar)
+
+σ = √[Σ(xi - μ)² / n]
+Implementación:
+javaprivate double calculateStandardDeviation(List<Long> values, double mean) {
+    double variance = values.stream()
+        .mapToDouble(v -> Math.pow(v - mean, 2))  // (valor - media)²
+        .average()
+        .orElse(0.0);
+    
+    return Math.sqrt(variance);  // Raíz cuadrada de varianza
+}
+
+// Ejemplo:
+List<Long> latencies = List.of(190L, 200L, 210L, 195L, 205L);
+double mean = 200.0;
+
+// Cálculo paso a paso:
+// (190-200)² = 100
+// (200-200)² = 0
+// (210-200)² = 100
+// (195-200)² = 25
+// (205-200)² = 25
+// Varianza = (100 + 0 + 100 + 25 + 25) / 5 = 50
+// Desv. Estándar = √50 = 7.07ms
+```
+
+**Qué significa en APIGuard:**
+```
+Endpoint A: Media = 200ms, Desv. Estándar = 10ms
+→ Muy consistente, la mayoría entre 190-210ms
+
+Endpoint B: Media = 200ms, Desv. Estándar = 100ms
+→ Muy variable, puede ir de 100ms a 300ms
+→ Menos predecible, peor calidad de servicio
+```
+
+---
+
+### **Percentiles (P50, P90, P95, P99)**
+**Qué es:** El valor por debajo del cual está X% de los datos.
+
+**Definición por percentil:**
+- **P50** = Mediana (50% está por debajo)
+- **P90** = 90% de requests están por debajo de este tiempo
+- **P95** = 95% de requests están por debajo (métrica SLA común)
+- **P99** = 99% de requests están por debajo (casos extremos)
+
+**Por qué son importantes:**
+```
+Media puede engañar:
+100 requests con latencias:
+- 95 requests: ~100ms
+- 5 requests: ~5000ms (outliers)
+
+Media = ~600ms  ← ❌ Da impresión de servicio lento
+P95 = ~100ms    ← ✅ Indica que 95% son rápidos
+P99 = ~5000ms   ← ⚠️ Indica que hay algunos problemas
+Implementación:
+javaprivate double calculatePercentile(List<Long> sortedValues, int percentile) {
+    if (sortedValues.isEmpty()) return 0.0;
+    
+    // Calcular índice: (percentil/100) * n
+    int index = (int) Math.ceil(percentile / 100.0 * sortedValues.size()) - 1;
+    
+    // Asegurar que esté en rango válido
+    index = Math.max(0, Math.min(index, sortedValues.size() - 1));
+    
+    return sortedValues.get(index).doubleValue();
+}
+
+// Ejemplo con 100 valores:
+List<Long> latencies = [...]; // 100 valores ordenados
+latencies.sort(Long::compareTo);
+
+double p50 = calculatePercentile(latencies, 50);
+// Posición: 0.50 * 100 = 50
+// Valor en posición 50
+
+double p95 = calculatePercentile(latencies, 95);
+// Posición: 0.95 * 100 = 95
+// Valor en posición 95
+// Solo 5 valores están por encima de este
+
+double p99 = calculatePercentile(latencies, 99);
+// Posición: 0.99 * 100 = 99
+// Valor en posición 99
+// Solo 1 valor está por encima
+```
+
+**Uso en SLA (Service Level Agreement):**
+```
+SLA típico:
+"El 95% de las solicitudes deben responder en menos de 1000ms"
+
+Verificación:
+GET /api/analytics/sla-report?endpoint=...
+
+Response:
+{
+  "p95Latency": 340.0,
+  "latencySLATarget": 1000.0,
+  "meetsLatencySLA": true,  ✅
+  "performanceGrade": "B"
+}
+
+Si P95 = 1200ms:
+{
+  "p95Latency": 1200.0,
+  "meetsLatencySLA": false,  ❌
+  "recommendation": "⚠️ No cumple SLA: optimizar endpoint"
+}
+```
+
+**Tabla de interpretación:**
+```
+P95 Latency    | Grade | Interpretación
+---------------|-------|------------------
+< 200ms        | A     | Excelente
+200-500ms      | B     | Bueno, cumple SLA
+500-1000ms     | C     | Aceptable
+1000-2000ms    | D     | Malo, revisar
+> 2000ms       | F     | Crítico, acción inmediata
+```
+
+---
+
+## **Detección de Anomalías (Anomaly Detection)**
+**Qué es:** Identificar valores que se desvían significativamente del patrón normal.
+
+### **Z-Score (Puntuación Estándar)**
+**Definición:** Cuántas desviaciones estándar está un valor de la media.
+
+**Fórmula:**
+```
+Z = (valor - media) / desviación_estándar
+
+Interpretación:
+Z = 0    → Valor igual a la media
+Z = 1    → 1 desviación estándar por encima
+Z = -1   → 1 desviación estándar por debajo
+Z = 3    → 3 desviaciones por encima (muy anormal)
+```
+
+**Regla empírica (Distribución Normal):**
+```
+68% de valores: entre -1σ y +1σ (Z entre -1 y 1)
+95% de valores: entre -2σ y +2σ (Z entre -2 y 2)
+99.7% de valores: entre -3σ y +3σ (Z entre -3 y 3)
+
+Por tanto:
+|Z| > 2  → Valor en el 5% más extremo (sospechoso)
+|Z| > 3  → Valor en el 0.3% más extremo (muy anormal)
+Implementación:
+javapublic AnomalyReport detectAnomalies(String endpoint, double threshold) {
+    // 1. Obtener historial
+    List<HealthCheckResponse> history = getHistory(endpoint, 50);
+    
+    List<Long> latencies = history.stream()
+        .map(HealthCheckResponse::getResponseTimeMs)
+        .collect(Collectors.toList());
+    
+    // 2. Calcular estadísticas
+    double mean = calculateMean(latencies);
+    double stdDev = calculateStandardDeviation(latencies, mean);
+    
+    // 3. Detectar anomalías
+    List<AnomalyEvent> anomalies = new ArrayList<>();
+    
+    for (int i = 0; i < history.size(); i++) {
+        HealthCheckResponse check = history.get(i);
+        long latency = check.getResponseTimeMs();
+        
+        // Calcular Z-score
+        double zScore = (latency - mean) / stdDev;
+        
+        // Si |Z| > threshold, es anomalía
+        if (Math.abs(zScore) > threshold) {
+            anomalies.add(AnomalyEvent.builder()
+                .timestamp(check.getTimestamp())
+                .value((double) latency)
+                .expectedValue(mean)
+                .zScore(zScore)
+                .description(String.format(
+                    "Latencia anómala: %dms (esperado: %.0fms, Z=%.2f)",
+                    latency, mean, zScore
+                ))
+                .build());
+        }
+    }
+    
+    // 4. Clasificar severidad
+    String severity = anomalies.size() > 5 ? "HIGH" : 
+                     anomalies.size() > 2 ? "MEDIUM" : "LOW";
+    
+    return AnomalyReport.builder()
+        .endpoint(endpoint)
+        .anomalyType("LATENCY_SPIKE")
+        .anomalies(anomalies)
+        .severity(severity)
+        .build();
+}
+Ejemplo real:
+javaHistorial de latencias (ms):
+[200, 195, 210, 205, 198, 3000, 202, 208]
+         ↑ Todas normales  ↑ ANOMALÍA
+
+Media = 577ms  (pero está sesgada por el outlier)
+Desv. Estándar = 981ms
+
+Para cada valor:
+200ms: Z = (200 - 577) / 981 = -0.38  ✅ Normal
+195ms: Z = (195 - 577) / 981 = -0.39  ✅ Normal
+...
+3000ms: Z = (3000 - 577) / 981 = 2.47  ⚠️ ANOMALÍA!
+
+Si threshold = 2.0:
+→ 3000ms se detecta como anomalía
+→ Se genera alerta
+→ Se recomienda investigar
+```
+
+**Visualización conceptual:**
+```
+         Normal Range        Anomaly
+    |<------- 95% ------>|
+────|────|────|────|────|────────|─────
+   -2σ  -1σ   μ   +1σ  +2σ    +3σ
+                              ↑
+                         3000ms está aquí
+                         (Z = 2.47)
+```
+
+**Uso en APIGuard:**
+```
+GET /api/analytics/anomalies?endpoint=https://api.com&threshold=2.0
+
+Response:
+{
+  "endpoint": "https://api.com",
+  "detectionTime": "2025-12-25T14:30:00",
+  "anomalyType": "LATENCY_SPIKE",
+  "anomalies": [
+    {
+      "timestamp": "2025-12-25T14:25:00",
+      "value": 3000.0,
+      "expectedValue": 200.0,
+      "zScore": 2.47,
+      "description": "Latencia anómala: 3000ms (esperado: 200ms)"
+    }
+  ],
+  "severity": "MEDIUM",
+  "recommendation": "Se detectaron anomalías. Verificar logs del servidor."
+}
+```
+
+---
+
+## **Análisis de Series Temporales**
+**Qué es:** Analizar datos que varían con el tiempo.
+
+### **Componentes de una Serie Temporal:**
+
+**1. Tendencia (Trend):**
+```
+Patrón a largo plazo
+
+Ejemplo - Latencia aumentando con el tiempo:
+200ms (día 1) → 250ms (día 7) → 300ms (día 14)
+→ Tendencia: CRECIENTE
+→ Posible causa: Más usuarios, BD creciendo
+```
+
+**2. Estacionalidad (Seasonality):**
+```
+Patrones que se repiten periódicamente
+
+Ejemplo - Latencia por hora del día:
+8am:  300ms (pico - inicio laboral)
+2pm:  200ms (normal)
+6pm:  400ms (pico - fin laboral)
+2am:  100ms (bajo - madrugada)
+
+→ Patrón diario predecible
+```
+
+**3. Ruido (Noise):**
+```
+Variaciones aleatorias sin patrón
+
+Ejemplo:
+200ms, 195ms, 205ms, 198ms, 202ms
+→ Pequeñas variaciones normales
+Implementación básica en APIGuard:
+javapublic TrendAnalysis analyzeTrend(String endpoint) {
+    // Obtener historial ordenado por tiempo
+    List<HealthCheckResponse> history = getHistory(endpoint, 100);
+    
+    // Dividir en ventanas temporales
+    List<Double> window1 = getAverageLatency(history, 0, 25);   // Primeros 25%
+    List<Double> window2 = getAverageLatency(history, 25, 50);  // Siguientes 25%
+    List<Double> window3 = getAverageLatency(history, 50, 75);
+    List<Double> window4 = getAverageLatency(history, 75, 100); // Últimos 25%
+    
+    // Comparar ventanas
+    double avg1 = calculateMean(window1);
+    double avg4 = calculateMean(window4);
+    
+    String trend;
+    if (avg4 > avg1 * 1.2) {
+        trend = "INCREASING";  // Empeoró 20%+
+    } else if (avg4 < avg1 * 0.8) {
+        trend = "DECREASING";  // Mejoró 20%+
+    } else {
+        trend = "STABLE";
+    }
+    
+    return TrendAnalysis.builder()
+        .trend(trend)
+        .initialAvg(avg1)
+        .currentAvg(avg4)
+        .percentChange(((avg4 - avg1) / avg1) * 100)
+        .build();
+}
+
+Distribución de Errores
+Qué es: Analizar qué errores son más comunes y por qué.
+Implementación completa:
+javapublic ErrorDistribution analyzeErrorDistribution(String period) {
+    // 1. Obtener todos los health checks del período
+    List<HealthCheckResponse> allHistory = getAllHistoryFromPeriod(period);
+    
+    // 2. Filtrar solo errores (status code >= 400)
+    List<HealthCheckResponse> errors = allHistory.stream()
+        .filter(h -> h.getStatusCode() != null && h.getStatusCode() >= 400)
+        .collect(Collectors.toList());
+    
+    // 3. Contar errores por código de estado
+    Map<Integer, Long> errorCounts = errors.stream()
+        .collect(Collectors.groupingBy(
+            HealthCheckResponse::getStatusCode,
+            Collectors.counting()
+        ));
+    
+    // 4. Top 5 errores más comunes
+    List<ErrorFrequency> topErrors = errorCounts.entrySet().stream()
+        .sorted(Map.Entry.<Integer, Long>comparingByValue().reversed())
+        .limit(5)
+        .map(entry -> ErrorFrequency.builder()
+            .statusCode(entry.getKey())
+            .errorMessage(getErrorMessage(entry.getKey()))
+            .count(entry.getValue())
+            .percentage((entry.getValue() * 100.0) / errors.size())
+            .affectedEndpoints(getAffectedEndpoints(errors, entry.getKey()))
+            .build())
+        .collect(Collectors.toList());
+    
+    // 5. Categorizar errores
+    Map<String, Long> byCategory = new HashMap<>();
+    byCategory.put("4xx_Client_Errors", errorCounts.entrySet().stream()
+        .filter(e -> e.getKey() >= 400 && e.getKey() < 500)
+        .mapToLong(Map.Entry::getValue)
+        .sum());
+    byCategory.put("5xx_Server_Errors", errorCounts.entrySet().stream()
+        .filter(e -> e.getKey() >= 500)
+        .mapToLong(Map.Entry::getValue)
+        .sum());
+    
+    // 6. Calcular tasa de error
+    long totalRequests = allHistory.size();
+    long totalErrors = errors.size();
+    double errorRate = (totalErrors * 100.0) / totalRequests;
+    
+    return ErrorDistribution.builder()
+        .period(period)
+        .totalRequests(totalRequests)
+        .totalErrors(totalErrors)
+        .errorRate(errorRate)
+        .topErrors(topErrors)
+        .errorsByCategory(byCategory)
+        .build();
+}
+Ejemplo de respuesta:
+jsonGET /api/analytics/error-distribution?period=last_24h
+
+{
+  "period": "last_24h",
+  "totalRequests": 1440,
+  "totalErrors": 72,
+  "errorRate": 5.0,
+  "topErrors": [
+    {
+      "statusCode": 500,
+      "errorMessage": "Internal Server Error",
+      "count": 30,
+      "percentage": 41.67,
+      "affectedEndpoints": [
+        "https://api.com/v1/users",
+        "https://api.com/v1/orders"
+      ]
+    },
+    {
+      "statusCode": 401,
+      "errorMessage": "Unauthorized",
+      "count": 25,
+      "percentage": 34.72,
+      "affectedEndpoints": ["https://api.com/v1/admin"]
+    },
+    {
+      "statusCode": 429,
+      "errorMessage": "Too Many Requests",
+      "count": 17,
+      "percentage": 23.61,
+      "affectedEndpoints": ["https://api.com/v1/search"]
+    }
+  ],
+  "errorsByCategory": {
+    "4xx_Client_Errors": 42,
+    "5xx_Server_Errors": 30
+  }
+}
+```
+
+**Insights que se pueden obtener:**
+```
+1. Error 500 es el más común (41.67%)
+   → Acción: Revisar logs del servidor
+   → Endpoints afectados: /users y /orders
+
+2. Error 401 afecta a /admin (34.72%)
+   → Acción: Validar tokens de autenticación
+   → Posible problema: Tokens expirados
+
+3. Error 429 en /search (23.61%)
+   → Acción: Implementar rate limiting del lado cliente
+   → Posible problema: Demasiadas búsquedas
+
+4. Tasa de error global: 5%
+   → Meta típica: < 1%
+   → Estado: Por debajo del objetivo, requiere atención
+
+Performance Grading (Calificación)
+Qué es: Sistema de calificación basado en métricas objetivas.
+Sistema de grades en APIGuard:
+javaprivate String calculatePerformanceGrade(double p95Latency) {
+    if (p95Latency < 200)  return "A";  // Excelente
+    if (p95Latency < 500)  return "B";  // Bueno
+    if (p95Latency < 1000) return "C";  // Aceptable (cumple SLA típico)
+    if (p95Latency < 2000) return "D";  // Malo (no cumple SLA)
+    return "F";                         // Crítico
+}
+```
+
+**Tabla de interpretación detallada:**
+```
+Grade | P95 Range    | SLA Status | User Experience | Acción
+------|--------------|------------|-----------------|------------------
+A     | < 200ms      | ✅ Excede  | Excelente       | Mantener
+B     | 200-500ms    | ✅ Cumple  | Buena           | Monitorear
+C     | 500-1000ms   | ⚠️ Límite  | Aceptable       | Optimizar
+D     | 1000-2000ms  | ❌ Falla   | Frustrante      | Acción urgente
+F     | > 2000ms     | ❌ Crítico | Inaceptable     | Emergencia
+Uso en resumen de performance:
+javapublic PerformanceSummary generateSummary() {
+    // Calcular métricas de todos los endpoints
+    Map<String, EndpointStats> allStats = calculateAllStats();
+    
+    // Generar performance por endpoint
+    List<EndpointPerformance> performances = allStats.entrySet().stream()
+        .map(entry -> {
+            double p95 = entry.getValue().getP95();
+            String grade = calculatePerformanceGrade(p95);
+            
+            return EndpointPerformance.builder()
+                .endpoint(entry.getKey())
+                .p95Latency(p95)
+                .grade(grade)
+                .build();
+        })
+        .collect(Collectors.toList());
+    
+    // Separar en categorías
+    List<EndpointPerformance> excellent = performances.stream()
+        .filter(p -> "A".equals(p.getGrade()))
+        .collect(Collectors.toList());
+    
+    List<EndpointPerformance> needsAttention = performances.stream()
+        .filter(p -> "D".equals(p.getGrade()) || "F".equals(p.getGrade()))
+        .collect(Collectors.toList());
+    
+    // Generar alertas
+    List<String> alerts = new ArrayList<>();
+    if (!needsAttention.isEmpty()) {
+        alerts.add(String.format(
+            "⚠️ %d endpoint(s) con performance crítica (D/F)",
+            needsAttention.size()
+        ));
+    }
+    
+    return PerformanceSummary.builder()
+        .totalEndpoints((long) performances.size())
+        .excellentEndpoints(excellent)
+        .criticalEndpoints(needsAttention)
+        .alerts(alerts)
+        .build();
+}
+
+
+DICCIONARIO TÉCNICO COMPLETO - APIGuard (PARTE 3)
+
+<a name="apis"></a>🌐 APIs Y PROTOCOLOS
+API REST (Representational State Transfer)
+Qué es: Estilo arquitectónico para crear servicios web usando HTTP.
+Principios REST:
+1. Cliente-Servidor
+┌─────────────┐         HTTP          ┌─────────────┐
+│   Cliente   │ ───────────────────→  │   Servidor  │
+│  (Browser)  │                        │ (APIGuard)  │
+│             │ ←───────────────────   │             │
+└─────────────┘     JSON Response     └─────────────┘
+
+Separación clara:
+- Cliente: UI, experiencia usuario
+- Servidor: Datos, lógica de negocio
+2. Sin Estado (Stateless)
+Cada request es independiente y contiene TODO lo necesario
+
+Request 1:
+GET /api/health/check?url=https://api.com
+Headers: Authorization: Bearer token123
+
+Request 2:
+GET /api/health/check?url=https://api2.com
+Headers: Authorization: Bearer token123
+↑ Debe incluir token otra vez, servidor NO recuerda request 1
+
+Ventajas:
+✅ Servidor más simple
+✅ Más escalable (cualquier servidor puede responder)
+✅ Más confiable (si servidor falla, no se pierde estado)
+3. Cacheable
+java@GetMapping("/api/knowledge/articles")
+@Cacheable("articles")  // ← Resultado se puede cachear
+public List<KnowledgeArticle> getArticles() {
+    // Resultado no cambia frecuentemente
+    return knowledgeService.getAllArticles();
+}
+
+Headers de respuesta:
+Cache-Control: max-age=600  ← Cacheable por 10 minutos
+ETag: "abc123"              ← Versión del recurso
+```
+
+**4. Interfaz Uniforme**
+```
+URLs predecibles y consistentes:
+
+✅ Buenas URLs REST:
+GET    /api/health/checks           - Listar todos
+GET    /api/health/checks/123       - Obtener uno específico
+POST   /api/health/checks           - Crear nuevo
+PUT    /api/health/checks/123       - Actualizar completo
+PATCH  /api/health/checks/123       - Actualizar parcial
+DELETE /api/health/checks/123       - Eliminar
+
+❌ Malas URLs (no REST):
+GET /api/getHealthCheck?id=123
+POST /api/createCheck
+GET /api/deleteCheck/123  ← DELETE debería ser el método
+
+Métodos HTTP (HTTP Verbs)
+GET - Obtener recursos
+java@GetMapping("/api/health/check")
+public ResponseEntity<HealthCheckResponse> check(@RequestParam String url) {
+    // Características:
+    // - Solo lectura (no modifica datos)
+    // - Idempotente (llamar N veces = mismo resultado)
+    // - Cacheable
+    // - Parámetros en URL (?url=...)
+    
+    HealthCheckResponse response = service.performHealthCheck(url);
+    return ResponseEntity.ok(response);  // HTTP 200
+}
+
+Ejemplo de request:
+GET /api/health/check?url=https://api.com HTTP/1.1
+Host: localhost:8080
+Accept: application/json
+
+Ejemplo de response:
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "url": "https://api.com",
+  "status": "UP",
+  "statusCode": 200
+}
+POST - Crear recursos
+java@PostMapping("/api/health/monitor/register")
+public ResponseEntity<String> register(
+        @RequestBody HealthCheckRequest request) {
+    // Características:
+    // - Crea nuevo recurso
+    // - NO idempotente (llamar 2 veces = 2 recursos)
+    // - Datos en body (JSON)
+    // - Retorna HTTP 201 Created
+    
+    service.registerForMonitoring(request);
+    return ResponseEntity
+        .status(HttpStatus.CREATED)
+        .body("Endpoint registrado exitosamente");
+}
+
+Ejemplo de request:
+POST /api/health/monitor/register HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{
+  "url": "https://api.com",
+  "method": "GET",
+  "timeoutSeconds": 30
+}
+
+Ejemplo de response:
+HTTP/1.1 201 Created
+Location: /api/health/monitor/1
+Content-Type: text/plain
+
+Endpoint registrado exitosamente
+PUT - Actualizar completo
+java@PutMapping("/api/health/monitor/{id}")
+public ResponseEntity<Void> update(
+        @PathVariable String id,
+        @RequestBody HealthCheckRequest request) {
+    // Características:
+    // - Reemplaza recurso completo
+    // - Idempotente (llamar N veces = mismo resultado)
+    // - Debe enviar TODOS los campos
+    
+    service.updateMonitoring(id, request);
+    return ResponseEntity.ok().build();  // HTTP 200
+}
+DELETE - Eliminar
+java@DeleteMapping("/api/health/monitor/{id}")
+public ResponseEntity<Void> delete(@PathVariable String id) {
+    // Características:
+    // - Elimina recurso
+    // - Idempotente (eliminar 2 veces = mismo resultado)
+    // - Retorna HTTP 204 No Content
+    
+    service.removeFromMonitoring(id);
+    return ResponseEntity.noContent().build();  // HTTP 204
+}
+
+Códigos de Estado HTTP (Status Codes)
+Familia 2xx - Éxito
+java200 OK           - Request exitoso, hay respuesta
+201 Created      - Recurso creado exitosamente
+204 No Content   - Exitoso pero sin contenido que retornar
+
+Ejemplos en APIGuard:
+
+// 200 - Retornar datos
+@GetMapping("/api/health/check")
+public ResponseEntity<HealthCheckResponse> check() {
+    return ResponseEntity.ok(response);  // HTTP 200
+}
+
+// 201 - Recurso creado
+@PostMapping("/api/health/monitor/register")
+public ResponseEntity<String> register() {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body("Creado");  // HTTP 201
+}
+
+// 204 - Eliminado, sin contenido
+@DeleteMapping("/api/health/monitor/{id}")
+public ResponseEntity<Void> delete() {
+    return ResponseEntity.noContent().build();  // HTTP 204
+}
+Familia 4xx - Error del Cliente
+java400 Bad Request      - Request mal formado (JSON inválido, campos faltantes)
+401 Unauthorized     - Falta autenticación o es inválida
+403 Forbidden        - Autenticado pero sin permisos
+404 Not Found        - Recurso no existe
+429 Too Many Requests - Rate limit excedido
+
+Ejemplos de cuándo retornarlos:
+
+@PostMapping("/api/diagnose/full")
+public ResponseEntity<?> diagnose(@Valid @RequestBody DiagnosticRequest request) {
+    
+    // Validación automática por @Valid
+    // Si falla → Spring retorna 400 automáticamente
+    
+    // Validación custom
+    if (request.getEndpoint() == null || request.getEndpoint().isEmpty()) {
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(Map.of("error", "Endpoint es requerido"));  // 400
+    }
+    
+    // Recurso no encontrado
+    Optional<Resource> resource = service.find(id);
+    if (resource.isEmpty()) {
+        return ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .body(Map.of("error", "Recurso no encontrado"));  // 404
+    }
+    
+    return ResponseEntity.ok(result);
+}
+Familia 5xx - Error del Servidor
+java500 Internal Server Error - Error inesperado en servidor
+502 Bad Gateway          - Servidor upstream falló
+503 Service Unavailable  - Servidor sobrecargado o en mantenimiento
+504 Gateway Timeout      - Servidor upstream no respondió a tiempo
+
+Spring maneja automáticamente:
+
+@RestController
+public class HealthController {
+    
+    @GetMapping("/api/health/check")
+    public ResponseEntity<HealthCheckResponse> check(@RequestParam String url) {
+        try {
+            HealthCheckResponse response = service.performHealthCheck(url);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            // Spring convierte automáticamente Exception → 500
+            log.error("Error inesperado", e);
+            throw e;  // Se convierte en HTTP 500
+        }
+    }
+}
+
+// Para manejar errores globalmente:
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<?> handleBadRequest(IllegalArgumentException e) {
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(Map.of("error", e.getMessage()));
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<?> handleGeneric(Exception e) {
+        log.error("Error no manejado", e);
+        return ResponseEntity
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(Map.of("error", "Error interno del servidor"));
+    }
+}
+
+Headers HTTP Importantes
+Request Headers (Cliente → Servidor)
+httpContent-Type: application/json
+↑ Formato del body que estoy enviando
+
+Accept: application/json
+↑ Formato que quiero recibir en respuesta
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+↑ Token de autenticación
+
+User-Agent: Mozilla/5.0 (Windows NT 10.0)
+↑ Información del cliente
+
+X-Request-ID: uuid-12345
+↑ ID único para rastrear request en logs
+Response Headers (Servidor → Cliente)
+httpContent-Type: application/json; charset=utf-8
+↑ Formato de la respuesta
+
+Cache-Control: max-age=3600
+↑ Puede cachearse por 1 hora
+
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1735174800
+↑ Información de rate limiting
+
+Location: /api/health/monitor/123
+↑ URL del recurso creado (usado con 201 Created)
+Configuración en Spring Boot:
+java@RestController
+@CrossOrigin(origins = "*")  // ← Permite CORS
+public class HealthController {
+    
+    @GetMapping("/api/health/check")
+    public ResponseEntity<HealthCheckResponse> check(@RequestParam String url) {
+        HealthCheckResponse response = service.performHealthCheck(url);
+        
+        return ResponseEntity.ok()
+            .header("X-Response-Time", "150ms")
+            .header("X-Server-Version", "1.0.0")
+            .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES))
+            .body(response);
+    }
+}
+```
+
+---
+
+## **SOAP (Simple Object Access Protocol)**
+**Qué es:** Protocolo más antiguo que REST, usa XML en lugar de JSON.
+
+### **Diferencias REST vs SOAP:**
+```
+┌──────────────┬──────────────────────┬──────────────────────┐
+│ Aspecto      │ REST                 │ SOAP                 │
+├──────────────┼──────────────────────┼──────────────────────┤
+│ Formato      │ JSON (ligero)        │ XML (verbose)        │
+│ Protocolo    │ Solo HTTP            │ HTTP, SMTP, TCP      │
+│ Estado       │ Stateless            │ Puede ser stateful   │
+│ Seguridad    │ HTTPS, OAuth         │ WS-Security          │
+│ Caché        │ Sí (HTTP cache)      │ No                   │
+│ Performance  │ Más rápido           │ Más lento            │
+│ Complejidad  │ Simple               │ Complejo             │
+│ Uso          │ APIs públicas        │ Enterprise, bancos   │
+└──────────────┴──────────────────────┴──────────────────────┘
+Ejemplo SOAP Request:
+xmlPOST /soap/service HTTP/1.1
+Host: api.example.com
+Content-Type: text/xml; charset=utf-8
+SOAPAction: "http://example.com/GetUserInfo"
+
+<?xml version="1.0"?>
+<soap:Envelope 
+    xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:m="http://example.com">
+  <soap:Header>
+    <m:Authentication>
+      <m:Username>user123</m:Username>
+      <m:Password>pass456</m:Password>
+    </m:Authentication>
+  </soap:Header>
+  <soap:Body>
+    <m:GetUserInfo>
+      <m:UserId>12345</m:UserId>
+    </m:GetUserInfo>
+  </soap:Body>
+</soap:Envelope>
+Ejemplo REST equivalente:
+httpGET /api/users/12345 HTTP/1.1
+Host: api.example.com
+Authorization: Basic dXNlcjEyMzpwYXNzNDU2
+Accept: application/json
+
+↓ Respuesta (mucho más simple)
+
+{
+  "userId": 12345,
+  "name": "Juan Pérez",
+  "email": "juan@example.com"
+}
+Cliente SOAP en Java (Spring Boot):
+java@Component
+public class SoapClient {
+    
+    private final WebServiceTemplate webServiceTemplate;
+    
+    public SoapClient(WebServiceTemplate webServiceTemplate) {
+        this.webServiceTemplate = webServiceTemplate;
+    }
+    
+    public GetUserInfoResponse getUserInfo(String userId) {
+        // Crear request SOAP
+        GetUserInfoRequest request = new GetUserInfoRequest();
+        request.setUserId(userId);
+        
+        // Enviar y recibir respuesta
+        GetUserInfoResponse response = (GetUserInfoResponse) 
+            webServiceTemplate.marshalSendAndReceive(
+                "http://api.example.com/soap/service",
+                request
+            );
+        
+        return response;
+    }
+}
+
+// Configuración del WebServiceTemplate
+@Configuration
+public class SoapConfig {
+    
+    @Bean
+    public WebServiceTemplate webServiceTemplate() {
+        WebServiceTemplate template = new WebServiceTemplate();
+        template.setDefaultUri("http://api.example.com/soap/service");
+        
+        // Configurar marshaller (XML ↔ Java)
+        Jaxb2Marshaller marshaller = new Jaxb2Marshaller();
+        marshaller.setContextPath("com.apiguard.soap.generated");
+        
+        template.setMarshaller(marshaller);
+        template.setUnmarshaller(marshaller);
+        
+        return template;
+    }
+}
+
+JSON (JavaScript Object Notation)
+Qué es: Formato de datos ligero y legible para intercambiar información.
+Sintaxis JSON:
+json{
+  "string": "valor de texto",
+  "number": 42,
+  "float": 3.14,
+  "boolean": true,
+  "null": null,
+  "array": [1, 2, 3, "cuatro"],
+  "object": {
+    "nested": "anidado"
+  }
+}
+Jackson - Conversión Java ↔ JSON
+Objeto Java → JSON (Serialización):
+java// Clase Java con @Data (Lombok)
+@Data
+@Builder
+public class HealthCheckResponse {
+    private String url;
+    private String status;
+    private Integer statusCode;
+    private Long responseTimeMs;
+    private LocalDateTime timestamp;
+}
+
+// Spring Boot lo convierte automáticamente:
+@RestController
+public class HealthController {
+    
+    @GetMapping("/api/health/check")
+    public ResponseEntity<HealthCheckResponse> check() {
+        HealthCheckResponse response = HealthCheckResponse.builder()
+            .url("https://api.com")
+            .status("UP")
+            .statusCode(200)
+            .responseTimeMs(150L)
+            .timestamp(LocalDateTime.now())
+            .build();
+        
+        // Spring convierte automáticamente a JSON ↓
+        return ResponseEntity.ok(response);
+    }
+}
+
+// JSON resultante:
+{
+  "url": "https://api.com",
+  "status": "UP",
+  "statusCode": 200,
+  "responseTimeMs": 150,
+  "timestamp": "2025-12-25T15:30:00"
+}
+JSON → Objeto Java (Deserialización):
+java@RestController
+public class DiagnosticController {
+    
+    @PostMapping("/api/diagnose/full")
+    public ResponseEntity<DiagnosticReport> diagnose(
+            @RequestBody DiagnosticRequest request) {
+        // ↑ Spring convierte JSON automáticamente a objeto Java
+        
+        // JSON recibido:
+        // {
+        //   "endpoint": "https://api.com",
+        //   "method": "GET",
+        //   "authenticationType": "Bearer"
+        // }
+        
+        // Se convierte en:
+        // DiagnosticRequest request = new DiagnosticRequest();
+        // request.setEndpoint("https://api.com");
+        // request.setMethod("GET");
+        // request.setAuthenticationType("Bearer");
+        
+        DiagnosticReport report = service.diagnose(request);
+        return ResponseEntity.ok(report);
+    }
+}
+Personalizar conversión:
+java@Data
+public class HealthCheckResponse {
+    
+    private String url;
+    
+    @JsonProperty("http_status")  // ← En JSON será "http_status"
+    private Integer statusCode;
+    
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")  // ← Formato fecha
+    private LocalDateTime timestamp;
+    
+    @JsonInclude(JsonInclude.Include.NON_NULL)  // ← Solo si no es null
+    private String message;
+    
+    @JsonIgnore  // ← No incluir en JSON
+    private String internalData;
+}
+
+// JSON resultante:
+{
+  "url": "https://api.com",
+  "http_status": 200,
+  "timestamp": "2025-12-25 15:30:00"
+  // message no aparece si es null
+  // internalData NUNCA aparece
+}
+
+Validación de Requests
+Qué es: Verificar que los datos recibidos sean correctos antes de procesarlos.
+Bean Validation (javax.validation / jakarta.validation):
+java@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class DiagnosticRequest {
+    
+    @NotBlank(message = "Endpoint es requerido")
+    @Pattern(regexp = "^https?://.*", message = "URL debe comenzar con http:// o https://")
+    private String endpoint;
+    
+    @NotBlank(message = "Método HTTP es requerido")
+    @Pattern(regexp = "^(GET|POST|PUT|DELETE|PATCH)$", message = "Método inválido")
+    private String method;
+    
+    @Min(value = 1, message = "Timeout debe ser mayor a 0")
+    @Max(value = 300, message = "Timeout no puede exceder 300 segundos")
+    private Integer timeoutSeconds = 30;
+    
+    @Email(message = "Email inválido")
+    private String notificationEmail;
+}
+Uso en Controller:
+java@RestController
+public class DiagnosticController {
+    
+    @PostMapping("/api/diagnose/full")
+    public ResponseEntity<?> diagnose(
+            @Valid @RequestBody DiagnosticRequest request) {
+        // ↑ @Valid activa validación automática
+        
+        // Si validación falla, Spring retorna automáticamente:
+        // HTTP 400 Bad Request
+        // {
+        //   "timestamp": "2025-12-25T15:30:00",
+        //   "status": 400,
+        //   "errors": [
+        //     "Endpoint es requerido",
+        //     "Método HTTP es requerido"
+        //   ]
+        // }
+        
+        // Si pasa validación, continúa aquí:
+        DiagnosticReport report = service.diagnose(request);
+        return ResponseEntity.ok(report);
+    }
+}
+Validación custom:
+java@RestController
+public class DiagnosticController {
+    
+    @PostMapping("/api/diagnose/full")
+    public ResponseEntity<?> diagnose(@RequestBody DiagnosticRequest request) {
+        
+        // Validación manual
+        List<String> errors = new ArrayList<>();
+        
+        if (request.getEndpoint() == null || request.getEndpoint().isEmpty()) {
+            errors.add("Endpoint es requerido");
+        }
+        
+        if (request.getMethod() == null) {
+            errors.add("Método HTTP es requerido");
+        } else if (!List.of("GET", "POST", "PUT", "DELETE").contains(request.getMethod())) {
+            errors.add("Método HTTP inválido: " + request.getMethod());
+        }
+        
+        // Si hay errores, retornar 400
+        if (!errors.isEmpty()) {
+            return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("errors", errors));
+        }
+        
+        // Procesar request válido
+        DiagnosticReport report = service.diagnose(request);
+        return ResponseEntity.ok(report);
+    }
+}
+
+<a name="database"></a>🗄️ BASE DE DATOS Y PERSISTENCIA
+JPA (Java Persistence API)
+Qué es: Estándar para mapear objetos Java a tablas de base de datos.
+ORM (Object-Relational Mapping):
+Sin ORM (JDBC puro):
+java// Código tedioso y propenso a errores
+public HealthCheckResponse save(HealthCheckResponse response) {
+    String sql = "INSERT INTO health_checks (url, status, status_code, response_time, timestamp) VALUES (?, ?, ?, ?, ?)";
+    
+    try (Connection conn = dataSource.getConnection();
+         PreparedStatement stmt = conn.prepareStatement(sql)) {
+        
+        stmt.setString(1, response.getUrl());
+        stmt.setString(2, response.getStatus());
+        stmt.setInt(3, response.getStatusCode());
+        stmt.setLong(4, response.getResponseTimeMs());
+        stmt.setTimestamp(5, Timestamp.valueOf(response.getTimestamp()));
+        
+        stmt.executeUpdate();
+    } catch (SQLException e) {
+        throw new RuntimeException(e);
+    }
+    
+    return response;
+}
+Con JPA/Hibernate:
+java// Entidad (mapea a tabla)
+@Entity
+@Table(name = "health_checks")
+@Data
+public class HealthCheckEntity {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String url;
+    
+    @Column(nullable = false)
+    private String status;
+    
+    @Column(name = "status_code")
+    private Integer statusCode;
+    
+    @Column(name = "response_time_ms")
+    private Long responseTimeMs;
+    
+    @Column(nullable = false)
+    private LocalDateTime timestamp;
+}
+
+// Repository (operaciones de BD)
+@Repository
+public interface HealthCheckRepository extends JpaRepository<HealthCheckEntity, Long> {
+    
+    // Métodos automáticos:
+    // save()
+    // findById()
+    // findAll()
+    // deleteById()
+    
+    // Queries personalizadas (Spring genera SQL automáticamente):
+    List<HealthCheckEntity> findByUrl(String url);
+    
+    List<HealthCheckEntity> findByUrlOrderByTimestampDesc(String url);
+    
+    @Query("SELECT h FROM HealthCheckEntity h WHERE h.url = :url AND h.timestamp > :since")
+    List<HealthCheckEntity> findRecentChecks(
+        @Param("url") String url,
+        @Param("since") LocalDateTime since
+    );
+}
+
+// Service (uso simple)
+@Service
+public class HealthMonitorService {
+    
+    private final HealthCheckRepository repository;
+    
+    public void saveHealthCheck(HealthCheckResponse response) {
+        HealthCheckEntity entity = convertToEntity(response);
+        repository.save(entity);  // ← Una línea!
+    }
+    
+    public List<HealthCheckResponse> getHistory(String url, int limit) {
+        List<HealthCheckEntity> entities = repository
+            .findByUrlOrderByTimestampDesc(url);
+        
+        return entities.stream()
+            .limit(limit)
+            .map(this::convertToDto)
+            .collect(Collectors.toList());
+    }
+}
+SQL generado automáticamente por Hibernate:
+sql-- Al iniciar aplicación:
+CREATE TABLE health_checks (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    url VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    status_code INT,
+    response_time_ms BIGINT,
+    timestamp TIMESTAMP NOT NULL
+);
+
+-- Al llamar repository.save():
+INSERT INTO health_checks (url, status, status_code, response_time_ms, timestamp)
+VALUES ('https://api.com', 'UP', 200, 150, '2025-12-25 15:30:00');
+
+-- Al llamar repository.findByUrl():
+SELECT * FROM health_checks WHERE url = 'https://api.com';
+
+-- Al llamar repository.findByUrlOrderByTimestampDesc():
+SELECT * FROM health_checks 
+WHERE url = 'https://api.com' 
+ORDER BY timestamp DESC;
+```
+
+---
+
+## **Transacciones**
+**Qué es:** Grupo de operaciones de BD que se ejecutan "todo o nada".
+
+**Concepto ACID:**
+```
+A - Atomicity (Atomicidad)
+    → Todas las operaciones se completan o ninguna
+
+C - Consistency (Consistencia)
+    → BD queda en estado válido
+
+I - Isolation (Aislamiento)
+    → Transacciones no interfieren entre sí
+
+D - Durability (Durabilidad)
+    → Una vez confirmada, los datos persisten
+Ejemplo sin transacción (peligroso):
+java@Service
+public class MonitoringService {
+    
+    public void registerEndpoint(HealthCheckRequest request) {
+        // 1. Guardar configuración
+        ConfigEntity config = new ConfigEntity();
+        config.setUrl(request.getUrl());
+        configRepository.save(config);  // ✅ Se guarda
+        
+        // 2. Crear primer health check
+        performHealthCheck(request.getUrl());  // ✅ Se ejecuta
+        
+        // 3. Enviar notificación
+        sendNotification();  // ❌ FALLA!
+        
+        // Resultado: Config guardada, health check hecho,
+        // pero notificación no enviada.
+        // Estado inconsistente! 😱
+    }
+}
+Con transacción (seguro):
+java@Service
+public class MonitoringService {
+    
+    @Transactional  // ← Marca método como transaccional
+    public void registerEndpoint(HealthCheckRequest request) {
+        // 1. Guardar configuración
+        ConfigEntity config = new ConfigEntity();
+        config.setUrl(request.getUrl());
+        configRepository.save(config);
+        
+        // 2. Crear primer health check
+        performHealthCheck(request.getUrl());
+        
+        // 3. Enviar notificación
+        sendNotification();  // ❌ FALLA!
+        
+        // Spring hace ROLLBACK automáticamente
+        // TODO se deshace: config NO guardada, health check NO hecho
+        // Estado consistente! ✅
+    }
+}
+Cómo funciona internamente:
+java// Lo que Spring hace por ti:
+public void registerEndpoint(HealthCheckRequest request) {
+    TransactionStatus transaction = transactionManager.getTransaction();
+    
+    try {
+        // Tu código aquí
+        configRepository.save(config);
+        performHealthCheck();
+        sendNotification();
+        
+        // Si todo OK, confirmar
+        transactionManager.commit(transaction);
+        
+    } catch (Exception e) {
+        // Si algo falla, deshacer todo
+        transactionManager.rollback(transaction);
+        throw e;
+    }
+}
+
+H2 vs PostgreSQL
+Qué son: Bases de datos usadas en APIGuard.
+H2 Database (Desarrollo):
+yaml# application.yml (profile: dev)
+spring:
+  datasource:
+    url: jdbc:h2:mem:apiguard  # ← En memoria
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: true  # ← http://localhost:8080/h2-console
+  jpa:
+    hibernate:
+      ddl-auto: create-drop  # ← Crea tablas al iniciar, borra al cerrar
+```
+
+**Características:**
+```
+✅ Ventajas:
+- No requiere instalación
+- Rápida (en memoria)
+- Perfecta para desarrollo/testing
+- Console web incluida
+
+❌ Desventajas:
+- Datos se pierden al reiniciar
+- No para producción
+- Menos features que PostgreSQL
+PostgreSQL (Producción):
+yaml# application.yml (profile: prod)
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/apiguard
+    username: postgres
+    password: tu_password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate  # ← Solo valida, no modifica
+```
+
+**Características:**
+```
+✅ Ventajas:
+- Datos persisten
+- Muy confiable
+- Features avanzados (JSON, full-text search)
+- Escalable
+
+❌ Desventajas:
+- Requiere instalación/servidor
+- Más complejo de configurar
+```
+
+**Estrategia en APIGuard:**
+```
+Desarrollo local:
+→ H2 (rápido, simple)
+
+Testing:
+→ H2 (cada test empieza limpio)
+
+Producción:
+→ PostgreSQL (datos persisten, confiable)
+
+Hibernate DDL Auto
+Qué es: Cómo Hibernate maneja el schema de la BD.
+yamlspring:
+  jpa:
+    hibernate:
+      ddl-auto: ???  # ← Opciones:
+```
+
+**Opciones:**
+
+**1. `create-drop` (Solo desarrollo)**
+```
+Al iniciar:  Borra todas las tablas y las crea de nuevo
+Al cerrar:   Borra todas las tablas
+
+Uso: Testing, desarrollo rápido
+Peligro: ⚠️ BORRA TODOS LOS DATOS

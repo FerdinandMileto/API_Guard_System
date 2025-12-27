@@ -1,0 +1,23 @@
+# Maven
+target/
+*.class
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Spring Boot
+.mvn/
+wrapper/
+mvnw
+mvnw.cmd
